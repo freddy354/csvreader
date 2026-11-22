@@ -109,9 +109,21 @@ export function run(input) {
 
   // Converts one segment of a quoted field: CRLF and lone CR each become LF,
   // and `line` advances by the number of line breaks in it. The common case
-  // (no CR or LF in the segment) returns the segment untouched.
+  // (no CR or LF in the segment) returns the segment untouched. A segment
+  // with LF but no CR needs no conversion at all: the replace would return
+  // it unchanged, so count its breaks directly and skip the regex pass.
   function convert(seg) {
-    if (seg.indexOf('\r') < 0 && seg.indexOf('\n') < 0) return seg;
+    if (seg.indexOf('\r') < 0) {
+      if (seg.indexOf('\n') < 0) return seg;
+      let count = 0;
+      let at = seg.indexOf('\n');
+      while (at >= 0) {
+        count += 1;
+        at = seg.indexOf('\n', at + 1);
+      }
+      line += count;
+      return seg;
+    }
     CR.lastIndex = 0;
     const out = seg.replace(CR, '\n');
     let count = 0;
@@ -209,7 +221,9 @@ export function run(input) {
       wasQuoted = false;
       // Unquoted field, inlined: one regex scan to the next comma / CR / LF,
       // the run sliced straight onto the record, no object per field. Only a
-      // lone CR (stray_cr) falls back to the full reader below.
+      // lone CR (stray_cr) falls back to the full reader below. The delimiter
+      // is told apart by its char code (44 comma, 10 LF, 13 CR) instead of
+      // the match string — the regex only ever matches those three.
       const fs = pos;
       for (;;) {
         DELIM.lastIndex = pos;
@@ -221,14 +235,14 @@ export function run(input) {
           break;
         }
         const i = mt.index;
-        const c = mt[0];
-        if (c === ',') {
+        const c = text.charCodeAt(i);
+        if (c === 44) {
           fields.push(text.slice(pos, i));
           pos = i + 1;
           ended = COMMA;
           break;
         }
-        if (c === '\n') {
+        if (c === 10) {
           fields.push(text.slice(pos, i));
           pos = i + 1;
           line += 1;
